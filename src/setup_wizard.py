@@ -96,10 +96,18 @@ def run_setup() -> None:
                 existing[key.strip()] = value.strip()
         print("Found existing .env — press Enter to keep current values.\n")
 
-    # --- Shared Slack settings (same app for all devs) ---
+    # --- Shared Slack tokens (same app for all devs) ---
     slack_app_token = existing.get("SLACK_APP_TOKEN", "")
     slack_bot_token = existing.get("SLACK_BOT_TOKEN", "")
-    channel = existing.get("SLACK_CHANNEL_NAME", "workforce-planning-core-bugs")
+
+    # --- Slack Channel (varies per team) ---
+    print("--- Slack Channel ---")
+    print("The channel where CFIT bugs are posted.\n")
+    channel = _prompt(
+        "Channel to monitor (without #)",
+        default=existing.get("SLACK_CHANNEL_NAME", "workforce-planning-core-bugs"),
+    )
+    print()
 
     # --- Asana ---
     print("--- Asana Token ---")
