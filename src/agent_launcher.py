@@ -89,40 +89,51 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
     context_file.parent.mkdir(parents=True, exist_ok=True)
     context_file.write_text(prompt)
 
-    # Copy prompt to clipboard
-    subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
-
-    # Open Cursor in the repo directory
-    print(f"\n>>> Opening Cursor in {repo_path}...")
+    # Ensure Cursor is open with the right folder, then activate + new agent + paste + submit
+    # All in one AppleScript for reliability regardless of Cursor's current state
+    print(f"\n>>> Launching Cursor agent for: {task_info['title']}")
     subprocess.run(["open", "-a", "Cursor", repo_path])
 
-    # Wait for Cursor to fully launch
-    print(">>> Waiting for Cursor to load...")
-    time.sleep(8)
+    subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
-    # Step 1: Activate Cursor and open new Agent chat (Shift+Cmd+L)
-    print(">>> Opening new Agent chat...")
     subprocess.run(["osascript", "-e", '''
+        -- Wait for Cursor to be running
+        tell application "System Events"
+            repeat 30 times
+                if exists (process "Cursor") then exit repeat
+                delay 1
+            end repeat
+        end tell
+
+        -- Activate and bring to front
         tell application "Cursor" to activate
-        delay 2
+        delay 3
+
+        -- Make sure Cursor is truly frontmost
+        tell application "System Events"
+            tell process "Cursor"
+                set frontmost to true
+            end tell
+        end tell
+        delay 1
+
+        -- Open new agent thread (Shift+Cmd+L) — creates new thread and focuses the input
         tell application "System Events"
             keystroke "l" using {command down, shift down}
         end tell
+        delay 2
     '''])
 
-    time.sleep(2)
-
-    # Re-copy prompt (in case clipboard was overwritten)
+    # Re-copy prompt right before paste
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
-    # Step 2: Paste and submit
     print(">>> Pasting prompt and submitting...")
     subprocess.run(["osascript", "-e", '''
         tell application "Cursor" to activate
         delay 1
         tell application "System Events"
             keystroke "v" using command down
-            delay 0.5
+            delay 1
             key code 36
         end tell
     '''])
