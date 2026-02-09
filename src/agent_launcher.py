@@ -1,0 +1,212 @@
+import subprocess
+import time
+from pathlib import Path
+
+from src.config import INVESTIGATION_REPOS, OUTPUT_DIR
+
+
+def build_prompt(task_info: dict, attachment_paths: list[str]) -> str:
+    attachments_section = ""
+    if attachment_paths:
+        file_list = "\n".join(f"- {p}" for p in attachment_paths)
+        attachments_section = f"\n## Attachments\n{file_list}\n"
+
+    custom_fields_section = ""
+    if task_info.get("custom_fields"):
+        fields = "\n".join(
+            f"- **{k}:** {v}" for k, v in task_info["custom_fields"].items() if v
+        )
+        if fields:
+            custom_fields_section = f"\n## Custom Fields\n{fields}\n"
+
+    description = task_info['description']
+    title = task_info['title']
+    url = task_info['url']
+    due = task_info.get('due_date') or 'Not set'
+    assignee = task_info.get('assignee_email') or task_info.get('assignee_name') or 'Unassigned'
+    tags = ', '.join(task_info.get('tags', [])) or 'None'
+
+    task_dir = Path(OUTPUT_DIR) / str(task_info["id"])
+    findings_path = task_dir / "findings.md"
+    summary_path = task_dir / "summary.txt"
+
+    return (
+        f"Investigate this CFIT bug and propose a solution.\n\n"
+        f"## Bug Report\n"
+        f"- **Title:** {title}\n"
+        f"- **Asana:** {url}\n"
+        f"- **Due:** {due}\n"
+        f"- **Assignee:** {assignee}\n"
+        f"- **Tags:** {tags}\n\n"
+        f"## Description\n"
+        f"{description}\n"
+        f"{custom_fields_section}{attachments_section}\n"
+        f"{'## Scope — Only investigate these repos\n' + ', '.join(f'`{r}/`' for r in INVESTIGATION_REPOS) + chr(10) + 'Do NOT search outside these directories.' + chr(10) + chr(10) if INVESTIGATION_REPOS else ''}"
+        f"## Instructions\n"
+        f"1. Analyze the bug description and any attached screenshots\n"
+        f"2. Search the codebase for relevant code paths{' (only in: ' + ', '.join(INVESTIGATION_REPOS) + ')' if INVESTIGATION_REPOS else ''}\n"
+        f"3. Identify the root cause\n"
+        f"4. Propose a fix with specific code changes\n"
+        f"5. Suggest how to test the fix\n\n"
+        f"## IMPORTANT: Write your output to these two files\n\n"
+        f"### 1. Summary (will be posted as an Asana comment)\n"
+        f"Write a concise plain-text summary to:\n"
+        f"`{summary_path}`\n\n"
+        f"The summary should be short and readable, structured as:\n"
+        f"- Root Cause: 2-3 sentences explaining what causes the bug\n"
+        f"- Affected Code: which file(s) and function(s) are involved\n"
+        f"- Proposed Fix: brief description of the fix approach and scope\n"
+        f"- Reference: mention that full details with code samples and test plan are in the attached findings.md\n\n"
+        f"### 2. Detailed findings (will be attached as a file)\n"
+        f"Write your complete detailed findings to:\n"
+        f"`{findings_path}`\n\n"
+        f"The findings file must include:\n"
+        f"- Root Cause: detailed explanation with error messages\n"
+        f"- Affected Code: files, functions, line numbers\n"
+        f"- Proposed Fix: specific code changes with code samples\n"
+        f"- Test Plan: unit tests and manual testing steps\n\n"
+        f"IMPORTANT: Write the summary.txt file LAST, after findings.md is complete.\n"
+    )
+
+
+def launch_claude(task_info: dict, attachment_paths: list[str], repo_path: str) -> None:
+    prompt = build_prompt(task_info, attachment_paths)
+    cmd = [
+        "claude",
+        "-p", prompt,
+        "--allowedTools", "Read,Grep,Glob,Task,Bash",
+    ]
+    print(f"\n>>> Launching Claude Code in {repo_path}")
+    print(f">>> Task: {task_info['title']}")
+    subprocess.run(cmd, cwd=repo_path)
+
+
+def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) -> None:
+    prompt = build_prompt(task_info, attachment_paths)
+
+    # Write context file as backup
+    context_file = Path(OUTPUT_DIR) / str(task_info["id"]) / "cursor_prompt.md"
+    context_file.parent.mkdir(parents=True, exist_ok=True)
+    context_file.write_text(prompt)
+
+    # Copy prompt to clipboard
+    subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
+
+    # Open Cursor in the repo directory
+    print(f"\n>>> Opening Cursor in {repo_path}...")
+    subprocess.run(["open", "-a", "Cursor", repo_path])
+
+    # Wait for Cursor to fully launch
+    print(">>> Waiting for Cursor to load...")
+    time.sleep(8)
+
+    # Step 1: Activate Cursor and open new Agent chat (Shift+Cmd+L)
+    print(">>> Opening new Agent chat...")
+    subprocess.run(["osascript", "-e", '''
+        tell application "Cursor" to activate
+        delay 2
+        tell application "System Events"
+            keystroke "l" using {command down, shift down}
+        end tell
+    '''])
+
+    time.sleep(2)
+
+    # Re-copy prompt (in case clipboard was overwritten)
+    subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
+
+    # Step 2: Paste and submit
+    print(">>> Pasting prompt and submitting...")
+    subprocess.run(["osascript", "-e", '''
+        tell application "Cursor" to activate
+        delay 1
+        tell application "System Events"
+            keystroke "v" using command down
+            delay 0.5
+            key code 36
+        end tell
+    '''])
+
+    print(f">>> Task: {task_info['title']}")
+    print(f">>> Cursor Agent is now investigating the bug")
+    print(f">>> Watching for findings at: {OUTPUT_DIR}/{task_info['id']}/findings.md")
+
+    # Poll for the findings file and post to Asana when ready
+    _wait_and_post_findings(task_info["id"])
+
+
+def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int = 1800) -> None:
+    """Poll for summary.txt and post results + attach findings.md to Asana."""
+    summary_path = Path(OUTPUT_DIR) / task_id / "summary.txt"
+    findings_path = Path(OUTPUT_DIR) / task_id / "findings.md"
+    elapsed = 0
+
+    while elapsed < timeout:
+        if summary_path.exists():
+            # Wait a bit to make sure the file is fully written
+            time.sleep(5)
+            summary = summary_path.read_text().strip()
+            if summary:
+                _post_to_asana(task_id, summary, findings_path)
+                return
+
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+        if elapsed % 60 == 0:
+            print(f">>> Still waiting for Cursor findings... ({elapsed // 60}m elapsed)")
+
+    print(f">>> Timed out after {timeout // 60}m waiting for findings")
+    print(f">>> You can manually post results later with: python -m src.main --post-results {task_id}")
+
+
+def _post_to_asana(task_id: str, summary: str, findings_path: Path) -> None:
+    """Post summary as comment and attach findings.md to the Asana task."""
+    from src.asana_client import post_comment, upload_attachment
+
+    print(f"\n>>> Findings detected! Posting to Asana task {task_id}...")
+
+    # Post the summary as a comment
+    comment = f"🤖 AI Agent Investigation Results\n\n{summary}"
+    try:
+        post_comment(task_id, comment)
+        print(">>> Summary posted as comment")
+    except Exception as e:
+        print(f">>> Error posting comment: {e}")
+
+    # Attach findings.md with full details
+    if findings_path.exists():
+        try:
+            upload_attachment(task_id, str(findings_path))
+            print(">>> findings.md attached to task")
+        except Exception as e:
+            print(f">>> Error attaching findings.md: {e}")
+            print(f">>> File saved locally at: {findings_path}")
+
+
+def post_results(task_id: str) -> None:
+    """Manually post findings to Asana for a given task ID."""
+    summary_path = Path(OUTPUT_DIR) / task_id / "summary.txt"
+    findings_path = Path(OUTPUT_DIR) / task_id / "findings.md"
+
+    # Use summary if available, fall back to findings
+    if summary_path.exists():
+        summary = summary_path.read_text().strip()
+    elif findings_path.exists():
+        summary = findings_path.read_text().strip()
+    else:
+        print(f"No summary.txt or findings.md found in {OUTPUT_DIR}/{task_id}/")
+        return
+
+    if not summary:
+        print("Summary/findings file is empty")
+        return
+
+    _post_to_asana(task_id, summary, findings_path)
+    print(f">>> Done posting to Asana task {task_id}")
+
+
+def launch(task_info: dict, attachment_paths: list[str], repo_path: str, mode: str = "claude") -> None:
+    if mode == "cursor":
+        launch_cursor(task_info, attachment_paths, repo_path)
+    else:
+        launch_claude(task_info, attachment_paths, repo_path)

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slack-bug-agent"
+version = "0.1.0"
+description = "Monitors Slack for Asana CFIT tickets and launches an AI agent to investigate bugs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "slack-bolt>=1.18.0",
+    "slack-sdk>=3.21.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+slack-bug-agent = "src.main:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
