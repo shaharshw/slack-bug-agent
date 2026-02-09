@@ -2,7 +2,20 @@ import subprocess
 import time
 from pathlib import Path
 
-from src.config import INVESTIGATION_REPOS, OUTPUT_DIR
+from src.agent_context import build_context_section
+from src.config import AGENT_CONTEXT_FILES, INVESTIGATION_REPOS, OUTPUT_DIR
+
+
+def _build_agent_context() -> str:
+    """Build context section from configured agent context files."""
+    if not AGENT_CONTEXT_FILES:
+        return ""
+    configs = [
+        {"path": f, "name": Path(f).name, "type": "ai_context"}
+        for f in AGENT_CONTEXT_FILES
+        if Path(f).is_file()
+    ]
+    return build_context_section(configs)
 
 
 def build_prompt(task_info: dict, attachment_paths: list[str]) -> str:
@@ -41,7 +54,8 @@ def build_prompt(task_info: dict, attachment_paths: list[str]) -> str:
         f"## Description\n"
         f"{description}\n"
         f"{custom_fields_section}{attachments_section}\n"
-        f"{'## Scope — Only investigate these repos\n' + ', '.join(f'`{r}/`' for r in INVESTIGATION_REPOS) + chr(10) + 'Do NOT search outside these directories.' + chr(10) + chr(10) if INVESTIGATION_REPOS else ''}"
+        f"{'## Scope — Only investigate these repos' + chr(10) + ', '.join(f'`{r}/`' for r in INVESTIGATION_REPOS) + chr(10) + 'Do NOT search outside these directories.' + chr(10) + chr(10) if INVESTIGATION_REPOS else ''}"
+        f"{_build_agent_context()}"
         f"## Instructions\n"
         f"1. Analyze the bug description and any attached screenshots\n"
         f"2. Search the codebase for relevant code paths{' (only in: ' + ', '.join(INVESTIGATION_REPOS) + ')' if INVESTIGATION_REPOS else ''}\n"

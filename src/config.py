@@ -30,6 +30,10 @@ AGENT_MODE = os.environ.get("AGENT_MODE", "claude")
 _raw_repos = os.environ.get("INVESTIGATION_REPOS", "")
 INVESTIGATION_REPOS = [r.strip() for r in _raw_repos.split(",") if r.strip()]
 
+# Agent context files — repo rules/configs injected into the AI prompt
+_raw_context_files = os.environ.get("AGENT_CONTEXT_FILES", "")
+AGENT_CONTEXT_FILES = [f.strip() for f in _raw_context_files.split(",") if f.strip()]
+
 # Directory for downloaded attachments and reports
 OUTPUT_DIR = _project_root / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)

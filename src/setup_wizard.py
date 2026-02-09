@@ -186,6 +186,37 @@ def run_setup() -> None:
         agent_mode = "cursor"
     print()
 
+    # --- Agent Context ---
+    agent_context_files = ""
+    repos_list = [r.strip() for r in investigation_repos.split(",") if r.strip()]
+    if os.path.isdir(expanded_repo):
+        from src.agent_context import scan_repos
+        configs = scan_repos(repo_path, repos_list)
+        if configs:
+            print("--- Agent Context ---")
+            print("Found existing agent rules/configs in your repos:\n")
+            for i, cfg in enumerate(configs, 1):
+                print(f"  {i}. {cfg['name']}")
+            print()
+            print("Which configs should be included in the AI agent's prompt?")
+            print("Enter comma-separated numbers, 'all' for everything, or leave empty to skip.\n")
+            selection = _prompt("Include configs", default=existing.get("AGENT_CONTEXT_FILES", "all"))
+
+            if selection.lower() == "all":
+                agent_context_files = ",".join(cfg["path"] for cfg in configs)
+                print(f"  Including all {len(configs)} configs")
+            elif selection:
+                selected = []
+                for part in selection.split(","):
+                    part = part.strip()
+                    if part.isdigit() and 1 <= int(part) <= len(configs):
+                        selected.append(configs[int(part) - 1]["path"])
+                agent_context_files = ",".join(selected)
+                print(f"  Including {len(selected)} config(s)")
+            else:
+                print("  Skipping agent context")
+            print()
+
     # --- Validate ---
     print("--- Validating ---")
     if asana_token:
@@ -215,6 +246,10 @@ INVESTIGATION_REPOS={investigation_repos}
 
 # AI agent mode: "claude" or "cursor"
 AGENT_MODE={agent_mode}
+
+# Agent context files (comma-separated absolute paths to .cursorrules, .mdc, CLAUDE.md)
+# These are injected into the AI agent's prompt so it follows repo conventions
+AGENT_CONTEXT_FILES={agent_context_files}
 """
     _ENV_PATH.write_text(env_content)
     print(f"Configuration saved to {_ENV_PATH}")
