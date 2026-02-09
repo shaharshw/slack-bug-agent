@@ -96,6 +96,11 @@ def run_setup() -> None:
                 existing[key.strip()] = value.strip()
         print("Found existing .env — press Enter to keep current values.\n")
 
+    # --- Shared Slack settings (same app for all devs) ---
+    slack_app_token = existing.get("SLACK_APP_TOKEN", "")
+    slack_bot_token = existing.get("SLACK_BOT_TOKEN", "")
+    channel = existing.get("SLACK_CHANNEL_NAME", "workforce-planning-core-bugs")
+
     # --- Asana ---
     print("--- Asana Token ---")
     print("Get yours at: https://app.asana.com/0/developer-console")
@@ -103,28 +108,6 @@ def run_setup() -> None:
     asana_token = _prompt(
         "Asana Access Token",
         default=existing.get("ASANA_ACCESS_TOKEN", ""),
-    )
-    print()
-
-    # --- Slack ---
-    print("--- Slack Tokens ---")
-    print("Follow setup_slack_app.md to create your Slack app.")
-    print("If not approved yet, leave these blank and add later.\n")
-    slack_app_token = _prompt(
-        "Slack App Token (xapp-...)",
-        default=existing.get("SLACK_APP_TOKEN", ""),
-    )
-    slack_bot_token = _prompt(
-        "Slack Bot Token (xoxb-...)",
-        default=existing.get("SLACK_BOT_TOKEN", ""),
-    )
-    print()
-
-    # --- Channel ---
-    print("--- Slack Channel ---")
-    channel = _prompt(
-        "Channel to monitor (without #)",
-        default=existing.get("SLACK_CHANNEL_NAME", "workforce-planning-core-bugs"),
     )
     print()
 
@@ -221,7 +204,6 @@ def run_setup() -> None:
     print("--- Validating ---")
     if asana_token:
         _validate_asana_token(asana_token)
-    _validate_slack_tokens(slack_app_token, slack_bot_token)
     _validate_repo_path(repo_path)
     print()
 
@@ -257,16 +239,13 @@ AGENT_CONTEXT_FILES={agent_context_files}
 
     # --- Next steps ---
     print("--- Next Steps ---")
-    if not slack_bot_token:
-        print("1. Once your Slack app is approved, run setup again to add the bot token")
-        print("2. Invite the bot to the channel: /invite @bug-agent-bot")
-    else:
-        print("1. Invite the bot to the channel: /invite @bug-agent-bot")
-
+    step = 1
     if agent_mode == "cursor":
-        print(f"{'2' if slack_bot_token else '3'}. Grant Accessibility permissions: System Settings > Privacy & Security > Accessibility > enable Terminal")
+        print(f"{step}. Grant Accessibility permissions: System Settings > Privacy & Security > Accessibility > enable Terminal")
+        step += 1
 
-    print()
-    print("To start the listener:  slack-bug-agent")
-    print("To process a task:      slack-bug-agent --task-url <asana-url>")
+    print(f"{step}. Process a task:  slack-bug-agent --task-url <asana-url>")
+    step += 1
+    if slack_bot_token:
+        print(f"{step}. Or start the listener:  slack-bug-agent")
     print()
