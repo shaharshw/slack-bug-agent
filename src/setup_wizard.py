@@ -97,8 +97,21 @@ def run_setup() -> None:
         print("Found existing .env — press Enter to keep current values.\n")
 
     # --- Shared Slack tokens (same app for all devs) ---
+    # Only prompt if not already configured (first-time install)
     slack_app_token = existing.get("SLACK_APP_TOKEN", "")
     slack_bot_token = existing.get("SLACK_BOT_TOKEN", "")
+    if not slack_app_token or not slack_bot_token:
+        print("--- Slack Tokens ---")
+        print("These are shared across the team — get them from your team lead.\n")
+        slack_app_token = _prompt(
+            "Slack App Token (xapp-...)",
+            default=slack_app_token,
+        )
+        slack_bot_token = _prompt(
+            "Slack Bot Token (xoxb-...)",
+            default=slack_bot_token,
+        )
+        print()
 
     # --- Slack Channel (varies per team) ---
     print("--- Slack Channel ---")
