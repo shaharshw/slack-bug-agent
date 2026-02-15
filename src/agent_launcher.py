@@ -111,10 +111,17 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
     context_file.parent.mkdir(parents=True, exist_ok=True)
     context_file.write_text(prompt)
 
-    # Ensure Cursor is open with the right folder, then activate + new agent + paste + submit
-    # All in one AppleScript for reliability regardless of Cursor's current state
+    # Open Cursor with investigation repos as a multi-root workspace
+    # Opening the full workspace root is too heavy — instead open the first repo,
+    # then add remaining repos to the workspace via the Cursor CLI.
     print(f"\n>>> Launching Cursor agent for: {task_info['title']}")
-    subprocess.run(["open", "-a", "Cursor", repo_path])
+    _CURSOR_CLI = "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
+    repo_dirs = [str(Path(repo_path) / r) for r in INVESTIGATION_REPOS] if INVESTIGATION_REPOS else [repo_path]
+    subprocess.run(["open", "-a", "Cursor", repo_dirs[0]])
+    if len(repo_dirs) > 1:
+        time.sleep(3)
+        for extra in repo_dirs[1:]:
+            subprocess.run([_CURSOR_CLI, "--add", extra])
 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 

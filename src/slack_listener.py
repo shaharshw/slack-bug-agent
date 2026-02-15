@@ -91,16 +91,17 @@ def _react(channel: str, ts: str, emoji: str) -> None:
     """Add a reaction emoji to a Slack message."""
     try:
         app.client.reactions_add(channel=channel, timestamp=ts, name=emoji)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  Failed to add :{emoji}: reaction: {e}")
 
 
 def _unreact(channel: str, ts: str, emoji: str) -> None:
     """Remove a reaction emoji from a Slack message."""
     try:
         app.client.reactions_remove(channel=channel, timestamp=ts, name=emoji)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  Failed to remove :{emoji}: reaction: {e}")
+
 
 
 def handle_message(event: dict, say) -> None:
