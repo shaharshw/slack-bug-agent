@@ -93,6 +93,11 @@ def build_prompt(task_info: dict, attachment_paths: list[str]) -> str:
 
 def launch_claude(task_info: dict, attachment_paths: list[str], repo_path: str) -> None:
     prompt = build_prompt(task_info, attachment_paths)
+    # Clean old output so the poll doesn't pick up stale results
+    task_dir = Path(OUTPUT_DIR) / str(task_info["id"])
+    for old_file in ("summary.txt", "findings.md"):
+        (task_dir / old_file).unlink(missing_ok=True)
+    task_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         "claude",
         "-p", prompt,
@@ -106,10 +111,12 @@ def launch_claude(task_info: dict, attachment_paths: list[str], repo_path: str) 
 def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) -> None:
     prompt = build_prompt(task_info, attachment_paths)
 
-    # Write context file as backup
-    context_file = Path(OUTPUT_DIR) / str(task_info["id"]) / "cursor_prompt.md"
-    context_file.parent.mkdir(parents=True, exist_ok=True)
-    context_file.write_text(prompt)
+    # Clean old output and write context file
+    task_dir = Path(OUTPUT_DIR) / str(task_info["id"])
+    for old_file in ("summary.txt", "findings.md"):
+        (task_dir / old_file).unlink(missing_ok=True)
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "cursor_prompt.md").write_text(prompt)
 
     # Open Cursor with investigation repos as a multi-root workspace
     # Opening the full workspace root is too heavy — instead open the first repo,
