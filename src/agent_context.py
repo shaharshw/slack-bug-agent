@@ -77,7 +77,7 @@ def load_config_content(config: dict) -> str:
 
 
 def build_context_section(configs: list[dict]) -> str:
-    """Build a prompt section from the selected agent configs."""
+    """Build a prompt section that references agent configs by path instead of inlining them."""
     if not configs:
         return ""
 
@@ -94,30 +94,22 @@ def build_context_section(configs: list[dict]) -> str:
     parts = []
 
     if scripts:
-        script_list = []
-        for config in scripts:
-            content = load_config_content(config)
-            if content:
-                script_list.append(f"### `{config['name']}`\n{content}")
-        if script_list:
-            parts.append(
-                "## Available Scripts & Skills\n"
-                "The repos have these scripts/skills you can use. USE THEM when applicable.\n\n"
-                + "\n\n".join(script_list)
-            )
+        file_list = "\n".join(f"- `{c['path']}`" for c in scripts)
+        parts.append(
+            "## Available Scripts & Skills\n"
+            "The repos have these scripts/skills. Read them and USE THEM when applicable "
+            "(e.g. for opening PRs, committing, running workflows).\n\n"
+            f"{file_list}"
+        )
 
     if guidelines:
-        guideline_list = []
-        for config in guidelines:
-            content = load_config_content(config)
-            if content:
-                guideline_list.append(f"### From `{config['name']}`\n{content}")
-        if guideline_list:
-            parts.append(
-                "## Repo Guidelines & Rules\n"
-                "Follow these rules and conventions when writing code.\n\n"
-                + "\n\n".join(guideline_list)
-            )
+        file_list = "\n".join(f"- `{c['path']}`" for c in guidelines)
+        parts.append(
+            "## Repo Guidelines & Rules\n"
+            "Read these files before writing code — they contain coding conventions, "
+            "patterns, and rules you must follow.\n\n"
+            f"{file_list}"
+        )
 
     if not parts:
         return ""
