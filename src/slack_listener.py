@@ -1,5 +1,6 @@
 import json
 import re
+import threading
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -104,6 +105,28 @@ def _unreact(channel: str, ts: str, emoji: str) -> None:
 
 
 
+def _process_task(task_id: str, channel: str, ts: str) -> None:
+    """Fetch task, launch agent, and update reactions. Runs in a background thread."""
+    try:
+        task_info = fetch_task(task_id)
+        print(f"Title: {task_info['title']}")
+
+        attachment_paths = fetch_attachments(task_id)
+        if attachment_paths:
+            print(f"Downloaded {len(attachment_paths)} attachment(s)")
+
+        launch(task_info, attachment_paths, config.TARGET_REPO_PATH, mode=config.AGENT_MODE)
+
+        # Done — swap 👀 for ✅
+        _unreact(channel, ts, "eyes")
+        _react(channel, ts, "white_check_mark")
+    except Exception as e:
+        # Error — swap 👀 for ❌
+        _unreact(channel, ts, "eyes")
+        _react(channel, ts, "x")
+        print(f"Error processing task {task_id}: {e}")
+
+
 def handle_message(event: dict, say) -> None:
     if not _check_channel(event):
         return
@@ -126,24 +149,13 @@ def handle_message(event: dict, say) -> None:
     # React with 👀 to indicate the bot is investigating
     _react(channel, ts, "eyes")
 
-    try:
-        task_info = fetch_task(task_id)
-        print(f"Title: {task_info['title']}")
-
-        attachment_paths = fetch_attachments(task_id)
-        if attachment_paths:
-            print(f"Downloaded {len(attachment_paths)} attachment(s)")
-
-        launch(task_info, attachment_paths, config.TARGET_REPO_PATH, mode=config.AGENT_MODE)
-
-        # Done — swap 👀 for ✅
-        _unreact(channel, ts, "eyes")
-        _react(channel, ts, "white_check_mark")
-    except Exception as e:
-        # Error — swap 👀 for ❌
-        _unreact(channel, ts, "eyes")
-        _react(channel, ts, "x")
-        print(f"Error processing task {task_id}: {e}")
+    # Run in background thread so the Slack listener stays responsive
+    thread = threading.Thread(
+        target=_process_task,
+        args=(task_id, channel, ts),
+        daemon=True,
+    )
+    thread.start()
 
 
 def start_listener() -> None:
