@@ -182,6 +182,12 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
     _wait_and_post_findings(task_info["id"])
 
 
+def _is_cursor_running() -> bool:
+    """Check if Cursor IDE is running."""
+    result = subprocess.run(["pgrep", "-x", "Cursor"], capture_output=True)
+    return result.returncode == 0
+
+
 def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int = 1800) -> None:
     """Poll for summary.txt and post results + attach findings.md to Asana."""
     summary_path = Path(OUTPUT_DIR) / task_id / "summary.txt"
@@ -196,6 +202,11 @@ def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int 
             if summary:
                 _post_to_asana(task_id, summary, findings_path)
                 return
+
+        # Stop polling if Cursor was closed
+        if not _is_cursor_running():
+            print(f">>> Cursor is no longer running — stopping poll for task {task_id}")
+            return
 
         time.sleep(poll_interval)
         elapsed += poll_interval
