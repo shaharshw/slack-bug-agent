@@ -182,50 +182,38 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
     _wait_and_post_findings(task_info["id"])
 
 
-def _is_cursor_running() -> bool:
-    """Check if Cursor IDE is running (macOS)."""
-    result = subprocess.run(
-        ["osascript", "-e",
-         'tell application "System Events" to (name of processes) contains "Cursor"'],
-        capture_output=True, text=True,
-    )
-    return "true" in result.stdout.strip().lower()
-
-
 def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int = 1800) -> None:
-    """Poll for summary.txt and post results + attach findings.md to Asana."""
+    """Poll for summary.txt (or findings.md) and post results to Asana.
+
+    Once findings.md appears, waits a grace period for summary.txt.
+    If summary.txt never arrives, posts findings.md as fallback.
+    """
     summary_path = Path(OUTPUT_DIR) / task_id / "summary.txt"
     findings_path = Path(OUTPUT_DIR) / task_id / "findings.md"
     elapsed = 0
+    findings_seen_at: int | None = None  # elapsed time when findings.md first appeared
+    findings_grace = 120  # seconds to wait for summary.txt after findings.md appears
 
     while elapsed < timeout:
+        # Best case: summary.txt exists
         if summary_path.exists():
-            # Wait a bit to make sure the file is fully written
-            time.sleep(5)
+            time.sleep(5)  # let the file finish writing
             summary = summary_path.read_text().strip()
             if summary:
                 _post_to_asana(task_id, summary, findings_path)
                 return
 
-        # Stop polling if Cursor was closed
-        if not _is_cursor_running():
-            print(f">>> Cursor is no longer running — stopping poll for task {task_id}")
-            # Cursor exited — check if there are partial results to post
-            if summary_path.exists():
-                summary = summary_path.read_text().strip()
-                if summary:
-                    print(">>> Found summary.txt — posting partial results")
-                    _post_to_asana(task_id, summary, findings_path)
-                    return
-            if findings_path.exists():
-                summary = findings_path.read_text().strip()
-                if summary:
-                    print(">>> No summary.txt but found findings.md — posting as fallback")
-                    _post_to_asana(task_id, summary, findings_path)
-                    return
-            print(">>> No output files found — nothing to post")
-            print(f">>> You can manually post results later with: python -m src.main --post-results {task_id}")
-            return
+        # Fallback: findings.md appeared but no summary.txt yet
+        if findings_path.exists() and findings_seen_at is None:
+            findings_seen_at = elapsed
+            print(f">>> findings.md detected — waiting up to {findings_grace}s for summary.txt")
+
+        if findings_seen_at is not None and (elapsed - findings_seen_at) >= findings_grace:
+            findings_text = findings_path.read_text().strip()
+            if findings_text:
+                print(">>> summary.txt not written — posting findings.md as fallback")
+                _post_to_asana(task_id, findings_text, findings_path)
+                return
 
         time.sleep(poll_interval)
         elapsed += poll_interval
@@ -233,6 +221,13 @@ def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int 
             print(f">>> Still waiting for Cursor findings... ({elapsed // 60}m elapsed)")
 
     print(f">>> Timed out after {timeout // 60}m waiting for findings")
+    # Last-ditch: post whatever exists
+    if findings_path.exists():
+        findings_text = findings_path.read_text().strip()
+        if findings_text:
+            print(">>> Posting findings.md after timeout")
+            _post_to_asana(task_id, findings_text, findings_path)
+            return
     print(f">>> You can manually post results later with: python -m src.main --post-results {task_id}")
 
 
