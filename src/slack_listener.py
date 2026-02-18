@@ -128,8 +128,14 @@ def _process_task(task_id: str, channel: str, ts: str) -> None:
 
 
 def handle_message(event: dict, say) -> None:
+    subtype = event.get("subtype", "")
+    channel_id = event.get("channel", "")
+
     if not _check_channel(event):
         return
+
+    # Log all messages in the target channel for debugging
+    print(f"  [debug] message in channel | subtype={subtype!r} bot={bool(event.get('bot_profile'))} text={event.get('text', '')[:80]!r}")
 
     if not _is_asana_bot_message(event):
         return
@@ -137,6 +143,7 @@ def handle_message(event: dict, say) -> None:
     # Extract task ID — Asana bot puts it in attachments[].callback_id
     task_id = _extract_task_id(event)
     if not task_id:
+        print(f"  [debug] Asana bot message but could not extract task ID")
         return
 
     channel = event["channel"]

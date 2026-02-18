@@ -176,16 +176,20 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     print(f">>> Task: {task_info['title']}")
     print(f">>> Cursor Agent is now investigating the bug")
-    print(f">>> Watching for findings at: {OUTPUT_DIR}/{task_info['id']}/findings.md")
+    print(f">>> Watching for summary at: {OUTPUT_DIR}/{task_info['id']}/summary.txt")
 
     # Poll for the findings file and post to Asana when ready
     _wait_and_post_findings(task_info["id"])
 
 
 def _is_cursor_running() -> bool:
-    """Check if Cursor IDE is running."""
-    result = subprocess.run(["pgrep", "-x", "Cursor"], capture_output=True)
-    return result.returncode == 0
+    """Check if Cursor IDE is running (macOS)."""
+    result = subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to (name of processes) contains "Cursor"'],
+        capture_output=True, text=True,
+    )
+    return "true" in result.stdout.strip().lower()
 
 
 def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int = 1800) -> None:
@@ -206,6 +210,21 @@ def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int 
         # Stop polling if Cursor was closed
         if not _is_cursor_running():
             print(f">>> Cursor is no longer running — stopping poll for task {task_id}")
+            # Cursor exited — check if there are partial results to post
+            if summary_path.exists():
+                summary = summary_path.read_text().strip()
+                if summary:
+                    print(">>> Found summary.txt — posting partial results")
+                    _post_to_asana(task_id, summary, findings_path)
+                    return
+            if findings_path.exists():
+                summary = findings_path.read_text().strip()
+                if summary:
+                    print(">>> No summary.txt but found findings.md — posting as fallback")
+                    _post_to_asana(task_id, summary, findings_path)
+                    return
+            print(">>> No output files found — nothing to post")
+            print(f">>> You can manually post results later with: python -m src.main --post-results {task_id}")
             return
 
         time.sleep(poll_interval)
