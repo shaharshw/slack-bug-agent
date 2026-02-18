@@ -2,6 +2,8 @@ import json
 import re
 import threading
 
+import logging
+
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
@@ -167,6 +169,10 @@ def handle_message(event: dict, say) -> None:
 
 def start_listener() -> None:
     global app
+
+    # Suppress noisy socket-state warnings; surface only real errors
+    logging.getLogger("slack_sdk.socket_mode").setLevel(logging.ERROR)
+
     app = App(token=config.SLACK_BOT_TOKEN)
     app.event("message")(handle_message)
 
