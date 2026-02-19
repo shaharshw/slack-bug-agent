@@ -147,7 +147,11 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
-    # Activate Cursor, open agent panel, click "New Agent" button via accessibility tree
+    # Activate Cursor, open agent panel, click "New Agent", paste prompt, submit
+    # All in one osascript call to avoid re-activation overhead
+    subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
+
+    print(">>> Opening new agent and pasting prompt...")
     subprocess.run(["osascript", "-e", '''
         -- Wait for Cursor to be running
         tell application "System Events"
@@ -157,13 +161,13 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
             end repeat
         end tell
 
-        -- Activate and wait for it to be frontmost
+        -- Activate and bring to front
         tell application "Cursor" to activate
-        delay 2
+        delay 1
         tell application "System Events"
             tell process "Cursor"
                 set frontmost to true
-                delay 1
+                delay 0.5
                 set winPos to position of window 1
                 set winX to item 1 of winPos
             end tell
@@ -173,10 +177,9 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         tell application "System Events"
             keystroke "l" using {command down, shift down}
         end tell
-        delay 2
+        delay 1
 
-        -- Find the sidebar "New Agent" button and click it.
-        -- It is an AXStaticText with value "New Agent" in the sidebar (< 250px from window left).
+        -- Find the sidebar "New Agent" button and click it
         tell application "System Events"
             tell process "Cursor"
                 set allElems to entire contents of window 1
@@ -186,9 +189,7 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
                             set btnPos to position of elem
                             if (item 1 of btnPos) - winX < 250 then
                                 set btnSz to size of elem
-                                set clickX to (item 1 of btnPos) + (item 1 of btnSz) / 2
-                                set clickY to (item 2 of btnPos) + (item 2 of btnSz) / 2
-                                click at {clickX, clickY}
+                                click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
                                 exit repeat
                             end if
                         end if
@@ -196,23 +197,12 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
                 end repeat
             end tell
         end tell
-        delay 3
-    '''])
+        delay 1.5
 
-    # Re-copy prompt right before paste (clipboard may have been overwritten)
-    subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
-
-    print(">>> Pasting prompt and submitting...")
-    subprocess.run(["osascript", "-e", '''
-        tell application "Cursor" to activate
-        delay 1
+        -- Paste and submit
         tell application "System Events"
-            tell process "Cursor"
-                set frontmost to true
-            end tell
-            delay 0.5
             keystroke "v" using command down
-            delay 2
+            delay 1
             key code 36
         end tell
     '''])
