@@ -147,7 +147,7 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
-    # Activate Cursor, open agent panel, then Cmd+N to create a new agent session
+    # Activate Cursor, open agent panel, click "New Agent" button to create session
     subprocess.run(["osascript", "-e", '''
         -- Wait for Cursor to be running
         tell application "System Events"
@@ -178,9 +178,16 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         end tell
         delay 2
 
-        -- Create a new agent session (Cmd+N while agent panel is focused)
+        -- Click the "New Agent" button in the sidebar
+        -- Get window position and click relative to it
         tell application "System Events"
-            keystroke "n" using command down
+            tell process "Cursor"
+                set winPos to position of window 1
+                set winX to item 1 of winPos
+                set winY to item 2 of winPos
+                -- "New Agent" button is in the sidebar, roughly 117px from left, 103px from top
+                click at {winX + 117, winY + 103}
+            end tell
         end tell
         delay 3
     '''])
