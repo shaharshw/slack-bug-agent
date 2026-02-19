@@ -293,112 +293,66 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         tell application "System Events"
             tell process "Cursor"
                 set frontmost to true
-                delay 1
-                set winPos to position of window 1
-                set winX to item 1 of winPos
             end tell
         end tell
+        delay 1
 
-        set done to false
+        -- Try up to 2 times: Cmd+I to open agent, paste, check if running
+        set agentStarted to false
+        repeat 2 times
+            if agentStarted then exit repeat
 
-        -- PHASE 0: Check if "New Chat" panel is already open (clean session ready).
-        -- If so, click below it to focus the input and paste directly.
-        repeat 5 times
-            if done then exit repeat
+            -- Cmd+I: always opens/focuses the Agent panel (never toggles closed)
+            tell application "System Events"
+                keystroke "i" using command down
+            end tell
+            delay 1.5
+
+            -- Paste the prompt
+            tell application "System Events"
+                keystroke "v" using command down
+            end tell
+            delay 1
+
+            -- Submit with Enter
+            tell application "System Events"
+                key code 36
+            end tell
+            delay 3
+
+            -- Check if agent is running: look for a "Stop" button or a progress indicator
+            -- If the window title changed or there is agent activity, we are good
             tell application "System Events"
                 tell process "Cursor"
                     set allElems to entire contents of window 1
                     repeat with elem in allElems
                         try
-                            if (value of elem) is "New Chat" then
-                                set pos to position of elem
-                                -- Click below "New Chat" heading to focus the chat input
-                                click at {(item 1 of pos) + 50, (item 2 of pos) + 60}
-                                set done to true
+                            set v to value of elem
+                            if v is "Stop" or v is "Cancel" or v is "Generating" then
+                                set agentStarted to true
                                 exit repeat
                             end if
                         end try
                     end repeat
                 end tell
             end tell
-            if not done then delay 1
+
+            if not agentStarted then
+                -- Not started yet — wait and retry
+                delay 2
+            end if
         end repeat
 
-        -- PHASE 1: Try to click "New Agent" button in sidebar
-        if not done then
-            repeat 5 times
-                if done then exit repeat
-                tell application "System Events"
-                    tell process "Cursor"
-                        set allElems to entire contents of window 1
-                        repeat with elem in allElems
-                            try
-                                if (value of elem) is "New Agent" and (role of elem) is "AXStaticText" then
-                                    set btnPos to position of elem
-                                    if (item 1 of btnPos) - winX < 250 then
-                                        set btnSz to size of elem
-                                        click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
-                                        set done to true
-                                        exit repeat
-                                    end if
-                                end if
-                            end try
-                        end repeat
-                    end tell
-                end tell
-                if not done then delay 1
-            end repeat
-        end if
-
-        -- PHASE 2: Sidebar is closed — Cmd+Shift+L to open, then find button.
-        if not done then
-            tell application "System Events"
-                keystroke "l" using {command down, shift down}
-            end tell
-            delay 2
-
-            repeat 15 times
-                if done then exit repeat
-                tell application "System Events"
-                    tell process "Cursor"
-                        set allElems to entire contents of window 1
-                        repeat with elem in allElems
-                            try
-                                if (value of elem) is "New Agent" and (role of elem) is "AXStaticText" then
-                                    set btnPos to position of elem
-                                    if (item 1 of btnPos) - winX < 250 then
-                                        set btnSz to size of elem
-                                        click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
-                                        set done to true
-                                        exit repeat
-                                    end if
-                                end if
-                            end try
-                        end repeat
-                    end tell
-                end tell
-                if not done then delay 1
-            end repeat
-        end if
-
-        if done then
-            delay 1.5
-            -- Paste the prompt and submit
-            tell application "System Events"
-                keystroke "v" using command down
-                delay 1
-                key code 36
-            end tell
+        if agentStarted then
             return "ok"
         else
-            return "fail:could_not_open_agent_session"
+            return "ok:submitted"
         end if
     '''], capture_output=True, text=True)
 
     osascript_result = result.stdout.strip()
-    if "fail" in osascript_result:
-        print(f">>> ERROR: Could not find 'New Agent' button after 15 retries")
-        print(f">>> The workspace may still be loading. Try running the task again.")
+    if "ok:submitted" in osascript_result:
+        print(f">>> Prompt submitted (could not confirm agent started — check Cursor)")
     else:
         print(f">>> Agent session started successfully")
 
