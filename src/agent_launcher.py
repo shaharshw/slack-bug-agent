@@ -147,7 +147,7 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
-    # Activate Cursor, open agent panel, click "New Agent" button to create session
+    # Activate Cursor, open agent panel, click "New Agent" button via accessibility tree
     subprocess.run(["osascript", "-e", '''
         -- Wait for Cursor to be running
         tell application "System Events"
@@ -160,17 +160,14 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         -- Activate and wait for it to be frontmost
         tell application "Cursor" to activate
         delay 2
-
         tell application "System Events"
             tell process "Cursor"
                 set frontmost to true
-                repeat 10 times
-                    if frontmost then exit repeat
-                    delay 0.5
-                end repeat
+                delay 1
+                set winPos to position of window 1
+                set winX to item 1 of winPos
             end tell
         end tell
-        delay 1
 
         -- Open/focus the agent side panel (Cmd+Shift+L)
         tell application "System Events"
@@ -178,15 +175,25 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         end tell
         delay 2
 
-        -- Click the "New Agent" button in the sidebar
-        -- Get window position and click relative to it
+        -- Find the sidebar "New Agent" button and click it.
+        -- It is an AXStaticText with value "New Agent" in the sidebar (< 250px from window left).
         tell application "System Events"
             tell process "Cursor"
-                set winPos to position of window 1
-                set winX to item 1 of winPos
-                set winY to item 2 of winPos
-                -- "New Agent" button is in the sidebar, roughly 117px from left, 103px from top
-                click at {winX + 117, winY + 103}
+                set allElems to entire contents of window 1
+                repeat with elem in allElems
+                    try
+                        if (value of elem) is "New Agent" and (role of elem) is "AXStaticText" then
+                            set btnPos to position of elem
+                            if (item 1 of btnPos) - winX < 250 then
+                                set btnSz to size of elem
+                                set clickX to (item 1 of btnPos) + (item 1 of btnSz) / 2
+                                set clickY to (item 2 of btnPos) + (item 2 of btnSz) / 2
+                                click at {clickX, clickY}
+                                exit repeat
+                            end if
+                        end if
+                    end try
+                end repeat
             end tell
         end tell
         delay 3
