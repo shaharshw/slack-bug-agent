@@ -108,6 +108,16 @@ def launch_claude(task_info: dict, attachment_paths: list[str], repo_path: str) 
     subprocess.run(cmd, cwd=repo_path)
 
 
+def _is_cursor_running() -> bool:
+    """Check if Cursor IDE is currently running."""
+    result = subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to (name of processes) contains "Cursor"'],
+        capture_output=True, text=True,
+    )
+    return "true" in result.stdout.strip().lower()
+
+
 def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) -> None:
     prompt = build_prompt(task_info, attachment_paths)
 
@@ -118,21 +128,28 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
     task_dir.mkdir(parents=True, exist_ok=True)
     (task_dir / "cursor_prompt.md").write_text(prompt)
 
-    # Open Cursor with investigation repos as a multi-root workspace
-    # Opening the full workspace root is too heavy — instead open the first repo,
-    # then add remaining repos to the workspace via the Cursor CLI.
     print(f"\n>>> Launching Cursor agent for: {task_info['title']}")
     _CURSOR_CLI = "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
     repo_dirs = [str(Path(repo_path) / r) for r in INVESTIGATION_REPOS] if INVESTIGATION_REPOS else [repo_path]
-    subprocess.run(["open", "-a", "Cursor", repo_dirs[0]])
-    if len(repo_dirs) > 1:
-        time.sleep(3)
-        for extra in repo_dirs[1:]:
-            subprocess.run([_CURSOR_CLI, "--add", extra])
+
+    cursor_already_open = _is_cursor_running()
+
+    if cursor_already_open:
+        # Cursor is already running — just reuse the existing workspace
+        print(">>> Cursor already open — reusing existing workspace")
+    else:
+        # Open Cursor with investigation repos as a multi-root workspace
+        subprocess.run(["open", "-a", "Cursor", repo_dirs[0]])
+        if len(repo_dirs) > 1:
+            time.sleep(3)
+            for extra in repo_dirs[1:]:
+                subprocess.run([_CURSOR_CLI, "--add", extra])
 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
-    subprocess.run(["osascript", "-e", '''
+    # Wait for Cursor, activate, and open a new agent thread
+    wait_delay = "delay 1" if cursor_already_open else "delay 3"
+    subprocess.run(["osascript", "-e", f'''
         -- Wait for Cursor to be running
         tell application "System Events"
             repeat 30 times
@@ -143,7 +160,7 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
         -- Activate and bring to front
         tell application "Cursor" to activate
-        delay 3
+        {wait_delay}
 
         -- Make sure Cursor is truly frontmost
         tell application "System Events"
@@ -155,7 +172,7 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
         -- Open new agent thread (Shift+Cmd+L) — creates new thread and focuses the input
         tell application "System Events"
-            keystroke "l" using {command down, shift down}
+            keystroke "l" using {{command down, shift down}}
         end tell
         delay 2
     '''])
