@@ -324,23 +324,43 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
             if not clickedNewAgent then delay 1
         end repeat
 
-        -- PHASE 2: Button not found = sidebar is closed. Use Command Palette instead.
-        -- (Only runs when sidebar is closed, so the toggle opens it — not closes it)
+        -- PHASE 2: Button not found = sidebar is closed.
+        -- Cmd+Shift+L is safe here — it will OPEN the panel (never close, since it's closed).
+        -- Then retry finding the "New Agent" button.
         if not clickedNewAgent then
             tell application "System Events"
-                keystroke "p" using {command down, shift down}
-            end tell
-            delay 0.5
-            tell application "System Events"
-                keystroke "Open New Agent Chat"
-            end tell
-            delay 0.5
-            tell application "System Events"
-                key code 36
+                keystroke "l" using {command down, shift down}
             end tell
             delay 2
-        else
+
+            repeat 15 times
+                if clickedNewAgent then exit repeat
+                tell application "System Events"
+                    tell process "Cursor"
+                        set allElems to entire contents of window 1
+                        repeat with elem in allElems
+                            try
+                                if (value of elem) is "New Agent" and (role of elem) is "AXStaticText" then
+                                    set btnPos to position of elem
+                                    if (item 1 of btnPos) - winX < 250 then
+                                        set btnSz to size of elem
+                                        click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
+                                        set clickedNewAgent to true
+                                        exit repeat
+                                    end if
+                                end if
+                            end try
+                        end repeat
+                    end tell
+                end tell
+                if not clickedNewAgent then delay 1
+            end repeat
+        end if
+
+        if clickedNewAgent then
             delay 1.5
+        else
+            return "fail:new_agent_button_not_found"
         end if
 
         -- Paste the prompt and submit
