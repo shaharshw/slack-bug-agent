@@ -273,7 +273,7 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
             # Single folder
             subprocess.run(["open", "-a", "Cursor", repo_dirs[0]])
         # Give the workspace time to load before interacting
-        time.sleep(5)
+        time.sleep(8)
 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
@@ -299,42 +299,35 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
             end tell
         end tell
 
-        -- PHASE 1: Try to click "New Agent" button in sidebar (works if panel is already open)
-        set clickedNewAgent to false
+        set done to false
+
+        -- PHASE 0: Check if "New Chat" panel is already open (clean session ready).
+        -- If so, click below it to focus the input and paste directly.
         repeat 5 times
-            if clickedNewAgent then exit repeat
+            if done then exit repeat
             tell application "System Events"
                 tell process "Cursor"
                     set allElems to entire contents of window 1
                     repeat with elem in allElems
                         try
-                            if (value of elem) is "New Agent" and (role of elem) is "AXStaticText" then
-                                set btnPos to position of elem
-                                if (item 1 of btnPos) - winX < 250 then
-                                    set btnSz to size of elem
-                                    click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
-                                    set clickedNewAgent to true
-                                    exit repeat
-                                end if
+                            if (value of elem) is "New Chat" then
+                                set pos to position of elem
+                                -- Click below "New Chat" heading to focus the chat input
+                                click at {(item 1 of pos) + 50, (item 2 of pos) + 60}
+                                set done to true
+                                exit repeat
                             end if
                         end try
                     end repeat
                 end tell
             end tell
-            if not clickedNewAgent then delay 1
+            if not done then delay 1
         end repeat
 
-        -- PHASE 2: Button not found = sidebar is closed.
-        -- Cmd+Shift+L is safe here — it will OPEN the panel (never close, since it's closed).
-        -- Then retry finding the "New Agent" button.
-        if not clickedNewAgent then
-            tell application "System Events"
-                keystroke "l" using {command down, shift down}
-            end tell
-            delay 2
-
-            repeat 15 times
-                if clickedNewAgent then exit repeat
+        -- PHASE 1: Try to click "New Agent" button in sidebar
+        if not done then
+            repeat 5 times
+                if done then exit repeat
                 tell application "System Events"
                     tell process "Cursor"
                         set allElems to entire contents of window 1
@@ -345,7 +338,7 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
                                     if (item 1 of btnPos) - winX < 250 then
                                         set btnSz to size of elem
                                         click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
-                                        set clickedNewAgent to true
+                                        set done to true
                                         exit repeat
                                     end if
                                 end if
@@ -353,24 +346,53 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
                         end repeat
                     end tell
                 end tell
-                if not clickedNewAgent then delay 1
+                if not done then delay 1
             end repeat
         end if
 
-        if clickedNewAgent then
-            delay 1.5
-        else
-            return "fail:new_agent_button_not_found"
+        -- PHASE 2: Sidebar is closed — Cmd+Shift+L to open, then find button.
+        if not done then
+            tell application "System Events"
+                keystroke "l" using {command down, shift down}
+            end tell
+            delay 2
+
+            repeat 15 times
+                if done then exit repeat
+                tell application "System Events"
+                    tell process "Cursor"
+                        set allElems to entire contents of window 1
+                        repeat with elem in allElems
+                            try
+                                if (value of elem) is "New Agent" and (role of elem) is "AXStaticText" then
+                                    set btnPos to position of elem
+                                    if (item 1 of btnPos) - winX < 250 then
+                                        set btnSz to size of elem
+                                        click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
+                                        set done to true
+                                        exit repeat
+                                    end if
+                                end if
+                            end try
+                        end repeat
+                    end tell
+                end tell
+                if not done then delay 1
+            end repeat
         end if
 
-        -- Paste the prompt and submit
-        tell application "System Events"
-            keystroke "v" using command down
-            delay 1
-            key code 36
-        end tell
-
-        return "ok"
+        if done then
+            delay 1.5
+            -- Paste the prompt and submit
+            tell application "System Events"
+                keystroke "v" using command down
+                delay 1
+                key code 36
+            end tell
+            return "ok"
+        else
+            return "fail:could_not_open_agent_session"
+        end if
     '''], capture_output=True, text=True)
 
     osascript_result = result.stdout.strip()
