@@ -147,7 +147,7 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
-    # Activate Cursor, open a new agent thread, paste the prompt, and submit
+    # Activate Cursor, create a new agent via Command Palette, paste prompt, submit
     subprocess.run(["osascript", "-e", '''
         -- Wait for Cursor to be running
         tell application "System Events"
@@ -164,7 +164,6 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         tell application "System Events"
             tell process "Cursor"
                 set frontmost to true
-                -- Wait until Cursor is actually the frontmost app
                 repeat 10 times
                     if frontmost then exit repeat
                     delay 0.5
@@ -173,9 +172,16 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         end tell
         delay 1
 
-        -- Open new agent thread (Shift+Cmd+L)
+        -- Use Command Palette to create a new agent (reliable regardless of panel state)
         tell application "System Events"
-            keystroke "l" using {command down, shift down}
+            keystroke "p" using {command down, shift down}
+        end tell
+        delay 1
+
+        tell application "System Events"
+            keystroke "new agent"
+            delay 1
+            key code 36
         end tell
         delay 3
     '''])
