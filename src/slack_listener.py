@@ -170,8 +170,9 @@ def handle_message(event: dict, say) -> None:
 def start_listener() -> None:
     global app
 
-    # Suppress noisy socket-state warnings; surface only real errors
-    logging.getLogger("slack_sdk.socket_mode").setLevel(logging.ERROR)
+    # The socket mode client logs BrokenPipeError at ERROR level during
+    # normal reconnection — suppress everything below CRITICAL
+    logging.getLogger("slack_sdk.socket_mode.builtin.connection").setLevel(logging.CRITICAL)
 
     app = App(token=config.SLACK_BOT_TOKEN)
     app.event("message")(handle_message)
