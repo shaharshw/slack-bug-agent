@@ -1,3 +1,4 @@
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -118,6 +119,112 @@ def _is_cursor_running() -> bool:
     return "true" in result.stdout.strip().lower()
 
 
+def _get_cursor_window_title() -> str | None:
+    """Get the title of the frontmost Cursor window."""
+    result = subprocess.run(
+        ["osascript", "-e", '''
+            tell application "System Events"
+                if exists (process "Cursor") then
+                    tell process "Cursor"
+                        if (count of windows) > 0 then
+                            return name of window 1
+                        end if
+                    end tell
+                end if
+            end tell
+            return ""
+        '''],
+        capture_output=True, text=True,
+    )
+    title = result.stdout.strip()
+    return title if title else None
+
+
+def _parse_workspace_from_title(title: str) -> str:
+    """Extract the workspace/folder name from a Cursor window title.
+
+    Title format examples:
+      "folder_name — Cursor"
+      "file.ts — folder_name — Cursor"
+      "file.ts — my-workspace (Workspace) — Cursor"
+    """
+    parts = title.split(" \u2014 ")  # em-dash separator
+    if len(parts) >= 2:
+        return parts[-2].strip()
+    return title.strip()
+
+
+def _cursor_has_correct_workspace(repo_path: str, repos: list[str], workspace_file: str | None) -> bool:
+    """Check if the current Cursor window has the correct workspace/repos open."""
+    title = _get_cursor_window_title()
+    if not title:
+        return False
+
+    ws_name = _parse_workspace_from_title(title)
+
+    if not repos:
+        # No specific repos — check if the target path folder name matches
+        return ws_name == Path(repo_path).name
+
+    if len(repos) == 1:
+        return ws_name == repos[0]
+
+    # Multi-repo: check against workspace file name
+    if workspace_file:
+        ws_stem = Path(workspace_file).stem
+        expected = f"{ws_stem} (Workspace)"
+        if ws_name == expected:
+            return True
+
+    return False
+
+
+def _find_matching_workspace(repo_path: str, repos: list[str]) -> str | None:
+    """Find an existing .code-workspace file whose folders match the target repos exactly."""
+    target_paths = {str(Path(repo_path, r).resolve()) for r in repos}
+
+    search_dirs = [
+        repo_path,
+        str(Path.home()),
+        str(Path.home() / "Desktop"),
+    ]
+
+    for search_dir in search_dirs:
+        d = Path(search_dir)
+        if not d.is_dir():
+            continue
+        for ws_file in d.glob("*.code-workspace"):
+            try:
+                data = json.loads(ws_file.read_text())
+                folders = data.get("folders", [])
+                ws_paths = set()
+                for folder in folders:
+                    fp = folder.get("path", "")
+                    resolved = (
+                        Path(fp).resolve()
+                        if Path(fp).is_absolute()
+                        else (ws_file.parent / fp).resolve()
+                    )
+                    ws_paths.add(str(resolved))
+                if ws_paths == target_paths:
+                    return str(ws_file)
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return None
+
+
+def _create_workspace_file(repo_path: str, repos: list[str]) -> str:
+    """Create a .code-workspace file for the given repos."""
+    folders = [{"path": str(Path(repo_path) / r)} for r in sorted(repos)]
+    workspace_data = {"folders": folders, "settings": {}}
+
+    ws_name = "-".join(sorted(repos))
+    ws_path = Path(repo_path) / f"{ws_name}.code-workspace"
+    ws_path.write_text(json.dumps(workspace_data, indent=2))
+    print(f">>> Created workspace file: {ws_path}")
+    return str(ws_path)
+
+
 def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) -> None:
     prompt = build_prompt(task_info, attachment_paths)
 
@@ -134,25 +241,44 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     cursor_already_open = _is_cursor_running()
 
-    if cursor_already_open:
-        # Cursor is already running — just reuse the existing workspace
-        print(">>> Cursor already open — reusing existing workspace")
+    # --- Workspace matching logic ---
+    workspace_file = None
+    need_to_open = False
+
+    if not cursor_already_open:
+        need_to_open = True
     else:
-        # Open Cursor with investigation repos as a multi-root workspace
-        subprocess.run(["open", "-a", "Cursor", repo_dirs[0]])
-        if len(repo_dirs) > 1:
-            time.sleep(3)
-            for extra in repo_dirs[1:]:
-                subprocess.run([_CURSOR_CLI, "--add", extra])
+        # Cursor is running — check if the current workspace matches
+        if INVESTIGATION_REPOS and len(INVESTIGATION_REPOS) > 1:
+            workspace_file = _find_matching_workspace(repo_path, INVESTIGATION_REPOS)
+        if _cursor_has_correct_workspace(repo_path, INVESTIGATION_REPOS, workspace_file):
+            print(">>> Cursor already open with correct workspace — reusing")
+        else:
+            print(">>> Cursor is open but with a different workspace — switching...")
+            need_to_open = True
 
-    subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
+    if need_to_open:
+        if INVESTIGATION_REPOS and len(INVESTIGATION_REPOS) > 1:
+            # Multi-repo: use a workspace file
+            if not workspace_file:
+                workspace_file = _find_matching_workspace(repo_path, INVESTIGATION_REPOS)
+            if not workspace_file:
+                workspace_file = _create_workspace_file(repo_path, INVESTIGATION_REPOS)
+            print(f">>> Opening workspace: {workspace_file}")
+            if cursor_already_open:
+                subprocess.run([_CURSOR_CLI, "--new-window", workspace_file])
+            else:
+                subprocess.run(["open", "-a", "Cursor", workspace_file])
+        else:
+            # Single folder
+            subprocess.run(["open", "-a", "Cursor", repo_dirs[0]])
+        # Give the workspace time to load before interacting
+        time.sleep(5)
 
-    # Activate Cursor, open agent panel, click "New Agent", paste prompt, submit
-    # All in one osascript call to avoid re-activation overhead
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
     print(">>> Opening new agent and pasting prompt...")
-    subprocess.run(["osascript", "-e", '''
+    result = subprocess.run(["osascript", "-e", '''
         -- Wait for Cursor to be running
         tell application "System Events"
             repeat 30 times
@@ -163,49 +289,76 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
         -- Activate and bring to front
         tell application "Cursor" to activate
-        delay 1
+        delay 2
         tell application "System Events"
             tell process "Cursor"
                 set frontmost to true
-                delay 0.5
+                delay 1
                 set winPos to position of window 1
                 set winX to item 1 of winPos
             end tell
         end tell
 
-        -- Open/focus the agent side panel (Cmd+Shift+L)
-        tell application "System Events"
-            keystroke "l" using {command down, shift down}
-        end tell
-        delay 1
-
-        -- Find the sidebar "New Agent" button and click it
-        tell application "System Events"
-            tell process "Cursor"
-                set allElems to entire contents of window 1
-                repeat with elem in allElems
-                    try
-                        if (value of elem) is "New Agent" and (role of elem) is "AXStaticText" then
-                            set btnPos to position of elem
-                            if (item 1 of btnPos) - winX < 250 then
-                                set btnSz to size of elem
-                                click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
-                                exit repeat
+        -- PHASE 1: Try to click "New Agent" button in sidebar (works if panel is already open)
+        set clickedNewAgent to false
+        repeat 5 times
+            if clickedNewAgent then exit repeat
+            tell application "System Events"
+                tell process "Cursor"
+                    set allElems to entire contents of window 1
+                    repeat with elem in allElems
+                        try
+                            if (value of elem) is "New Agent" and (role of elem) is "AXStaticText" then
+                                set btnPos to position of elem
+                                if (item 1 of btnPos) - winX < 250 then
+                                    set btnSz to size of elem
+                                    click at {(item 1 of btnPos) + (item 1 of btnSz) / 2, (item 2 of btnPos) + (item 2 of btnSz) / 2}
+                                    set clickedNewAgent to true
+                                    exit repeat
+                                end if
                             end if
-                        end if
-                    end try
-                end repeat
+                        end try
+                    end repeat
+                end tell
             end tell
-        end tell
-        delay 1.5
+            if not clickedNewAgent then delay 1
+        end repeat
 
-        -- Paste and submit
+        -- PHASE 2: Button not found = sidebar is closed. Use Command Palette instead.
+        -- (Only runs when sidebar is closed, so the toggle opens it — not closes it)
+        if not clickedNewAgent then
+            tell application "System Events"
+                keystroke "p" using {command down, shift down}
+            end tell
+            delay 0.5
+            tell application "System Events"
+                keystroke "Open New Agent Chat"
+            end tell
+            delay 0.5
+            tell application "System Events"
+                key code 36
+            end tell
+            delay 2
+        else
+            delay 1.5
+        end if
+
+        -- Paste the prompt and submit
         tell application "System Events"
             keystroke "v" using command down
             delay 1
             key code 36
         end tell
-    '''])
+
+        return "ok"
+    '''], capture_output=True, text=True)
+
+    osascript_result = result.stdout.strip()
+    if "fail" in osascript_result:
+        print(f">>> ERROR: Could not find 'New Agent' button after 15 retries")
+        print(f">>> The workspace may still be loading. Try running the task again.")
+    else:
+        print(f">>> Agent session started successfully")
 
     print(f">>> Task: {task_info['title']}")
     print(f">>> Cursor Agent is now investigating the bug")
