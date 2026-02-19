@@ -148,6 +148,8 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
     # Activate Cursor, create a new agent via Command Palette, paste prompt, submit
+    # The internal command is "composer.newAgentChat" (found in Cursor's source).
+    # Cmd+Shift+L toggles the panel, so we use the Command Palette instead.
     subprocess.run(["osascript", "-e", '''
         -- Wait for Cursor to be running
         tell application "System Events"
@@ -172,15 +174,16 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         end tell
         delay 1
 
-        -- Use Command Palette to create a new agent (reliable regardless of panel state)
+        -- Open Command Palette and run the new-agent-chat command
         tell application "System Events"
             keystroke "p" using {command down, shift down}
         end tell
-        delay 1
+        delay 1.5
 
+        -- Type the exact command ID (Cmd+Shift+P already adds the > prefix)
         tell application "System Events"
-            keystroke "new agent"
-            delay 1
+            keystroke "composer.newAgentChat"
+            delay 1.5
             key code 36
         end tell
         delay 3
