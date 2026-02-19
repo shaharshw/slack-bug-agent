@@ -147,9 +147,8 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
-    # Wait for Cursor, activate, and open a new agent thread
-    wait_delay = "delay 1" if cursor_already_open else "delay 3"
-    subprocess.run(["osascript", "-e", f'''
+    # Activate Cursor, open a new agent thread, paste the prompt, and submit
+    subprocess.run(["osascript", "-e", '''
         -- Wait for Cursor to be running
         tell application "System Events"
             repeat 30 times
@@ -158,26 +157,30 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
             end repeat
         end tell
 
-        -- Activate and bring to front
+        -- Activate and wait for it to be frontmost
         tell application "Cursor" to activate
-        {wait_delay}
+        delay 2
 
-        -- Make sure Cursor is truly frontmost
         tell application "System Events"
             tell process "Cursor"
                 set frontmost to true
+                -- Wait until Cursor is actually the frontmost app
+                repeat 10 times
+                    if frontmost then exit repeat
+                    delay 0.5
+                end repeat
             end tell
         end tell
         delay 1
 
-        -- Open new agent thread (Shift+Cmd+L) — creates new thread and focuses the input
+        -- Open new agent thread (Shift+Cmd+L)
         tell application "System Events"
-            keystroke "l" using {{command down, shift down}}
+            keystroke "l" using {command down, shift down}
         end tell
-        delay 2
+        delay 3
     '''])
 
-    # Re-copy prompt right before paste
+    # Re-copy prompt right before paste (clipboard may have been overwritten)
     subprocess.run(["pbcopy"], input=prompt.encode(), check=True)
 
     print(">>> Pasting prompt and submitting...")
@@ -185,8 +188,12 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
         tell application "Cursor" to activate
         delay 1
         tell application "System Events"
+            tell process "Cursor"
+                set frontmost to true
+            end tell
+            delay 0.5
             keystroke "v" using command down
-            delay 1
+            delay 2
             key code 36
         end tell
     '''])
