@@ -170,9 +170,11 @@ def handle_message(event: dict, say) -> None:
 def start_listener() -> None:
     global app
 
-    # The socket mode client logs BrokenPipeError at ERROR level during
-    # normal reconnection — suppress everything below CRITICAL
-    logging.getLogger("slack_sdk.socket_mode.builtin.connection").setLevel(logging.CRITICAL)
+    # The socket mode client logs BrokenPipeError / SSLError at ERROR level
+    # during normal reconnection — suppress everything below CRITICAL.
+    # The logger lives in .builtin.client (not .connection) since Connection
+    # receives the client's logger instance.
+    logging.getLogger("slack_sdk.socket_mode.builtin").setLevel(logging.CRITICAL)
 
     app = App(token=config.SLACK_BOT_TOKEN)
     app.event("message")(handle_message)
