@@ -9,6 +9,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from src.asana_client import fetch_attachments, fetch_task
 from src.agent_launcher import launch
+from src.guardrails import validate_task_id
 from src import config
 
 app = None  # Initialized lazily in start_listener()
@@ -73,19 +74,25 @@ def _extract_task_id(event: dict) -> str | None:
             try:
                 data = json.loads(cb)
                 if "taskId" in data:
-                    return data["taskId"]
+                    task_id = data["taskId"]
+                    if validate_task_id(task_id):
+                        return task_id
             except (json.JSONDecodeError, TypeError):
                 pass
         # Fallback: title_link or action URLs
         for url_field in [att.get("title_link", "")] + [a.get("url", "") for a in att.get("actions", [])]:
             match = re.search(r"/(\d{10,})/", url_field)
             if match:
-                return match.group(1)
+                task_id = match.group(1)
+                if validate_task_id(task_id):
+                    return task_id
 
     # Last resort: regex on text
     match = re.search(config.ASANA_URL_PATTERN, event.get("text", ""))
     if match:
-        return match.group(1)
+        task_id = match.group(1)
+        if validate_task_id(task_id):
+            return task_id
 
     return None
 
