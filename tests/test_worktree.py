@@ -112,3 +112,22 @@ def test_list_worktrees_empty(tmp_path):
 
     result = list_worktrees(str(tmp_path), ["myrepo"])
     assert result == []
+
+
+def test_prompt_contains_worktree_instructions():
+    """build_prompt includes git worktree instructions, not git checkout."""
+    from src.agent_launcher import build_prompt
+
+    task_info = {
+        "id": "123456",
+        "title": "Test bug",
+        "description": "Something is broken",
+        "url": "https://app.asana.com/0/project/123456",
+    }
+    prompt = build_prompt(task_info, [])
+
+    assert "git worktree add" in prompt
+    assert "CRITICAL RULES" in prompt
+    assert "NEVER run `git checkout`" in prompt
+    # The old checkout instruction must be gone
+    assert "git checkout -b" not in prompt
