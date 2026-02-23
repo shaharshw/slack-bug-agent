@@ -114,6 +114,8 @@ def launch_claude(task_info: dict, attachment_paths: list[str], repo_path: str) 
     print(f"\n>>> Launching Claude Code in {repo_path}")
     print(f">>> Task: {task_info['title']}")
     subprocess.run(cmd, cwd=repo_path)
+    from src.worktree import cleanup_worktrees
+    cleanup_worktrees(repo_path, str(task_info["id"]), INVESTIGATION_REPOS or [Path(repo_path).name])
 
 
 def _is_cursor_running() -> bool:
@@ -369,6 +371,8 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     # Poll for the findings file and post to Asana when ready
     _wait_and_post_findings(task_info["id"])
+    from src.worktree import cleanup_worktrees
+    cleanup_worktrees(repo_path, str(task_info["id"]), INVESTIGATION_REPOS or [Path(repo_path).name])
 
 
 def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int = 1800) -> None:
