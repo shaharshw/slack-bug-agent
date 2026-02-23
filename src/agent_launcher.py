@@ -5,6 +5,7 @@ from pathlib import Path
 
 from src.agent_context import build_context_section
 from src.config import AGENT_CONTEXT_FILES, INVESTIGATION_REPOS, OUTPUT_DIR
+from src.worktree import cleanup_worktrees
 
 
 def _build_agent_context() -> str:
@@ -65,15 +66,15 @@ def build_prompt(task_info: dict, attachment_paths: list[str]) -> str:
         f"1. Analyze the bug description and any attached screenshots\n"
         f"2. Search the codebase for relevant code paths{' (only in: ' + ', '.join(INVESTIGATION_REPOS) + ')' if INVESTIGATION_REPOS else ''}\n"
         f"3. Identify the root cause\n"
-        f"4. Implement the fix — write the actual code changes\n"
-        f"5. Write tests for the fix\n"
-        f"6. Create an isolated worktree for your changes (do NOT run `git checkout` in the main repo):\n"
+        f"4. Create an isolated worktree for your changes (do NOT run `git checkout` in the main repo):\n"
         f"   - `cd` into the affected repo's root directory\n"
-        f"   - `mkdir -p .worktrees`\n"
+        f"   - `mkdir -p .worktrees && echo '.worktrees/' >> .gitignore` (if not already in .gitignore)\n"
         f"   - `git worktree add .worktrees/cfit-{task_info['id']} -b fix/cfit-{task_info['id']}`\n"
         f"   - `cd .worktrees/cfit-{task_info['id']}`\n"
-        f"   - Make ALL code changes inside this worktree directory\n"
-        f"   - Commit your changes, push the branch, and open a PR with `gh pr create`\n"
+        f"   - All remaining steps happen inside this worktree directory\n"
+        f"5. Implement the fix — write the actual code changes\n"
+        f"6. Write tests for the fix\n"
+        f"7. Commit your changes, push the branch, and open a PR with `gh pr create`\n"
         f"   - PR title should reference the bug title\n"
         f"   - PR description should include the root cause and what was changed\n\n"
         f"## IMPORTANT: Write your output to these two files\n\n"
@@ -114,8 +115,9 @@ def launch_claude(task_info: dict, attachment_paths: list[str], repo_path: str) 
     print(f"\n>>> Launching Claude Code in {repo_path}")
     print(f">>> Task: {task_info['title']}")
     subprocess.run(cmd, cwd=repo_path)
-    from src.worktree import cleanup_worktrees
-    cleanup_worktrees(repo_path, str(task_info["id"]), INVESTIGATION_REPOS or [Path(repo_path).name])
+    repos = INVESTIGATION_REPOS or [Path(repo_path).name]
+    base = str(Path(repo_path).parent) if not INVESTIGATION_REPOS else repo_path
+    cleanup_worktrees(base, str(task_info["id"]), repos)
 
 
 def _is_cursor_running() -> bool:
@@ -371,8 +373,9 @@ def launch_cursor(task_info: dict, attachment_paths: list[str], repo_path: str) 
 
     # Poll for the findings file and post to Asana when ready
     _wait_and_post_findings(task_info["id"])
-    from src.worktree import cleanup_worktrees
-    cleanup_worktrees(repo_path, str(task_info["id"]), INVESTIGATION_REPOS or [Path(repo_path).name])
+    repos = INVESTIGATION_REPOS or [Path(repo_path).name]
+    base = str(Path(repo_path).parent) if not INVESTIGATION_REPOS else repo_path
+    cleanup_worktrees(base, str(task_info["id"]), repos)
 
 
 def _wait_and_post_findings(task_id: str, poll_interval: int = 10, timeout: int = 1800) -> None:
