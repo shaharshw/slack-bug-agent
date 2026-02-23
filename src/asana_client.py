@@ -4,6 +4,7 @@ from pathlib import Path
 import requests
 
 from src.config import ASANA_ACCESS_TOKEN, OUTPUT_DIR
+from src.guardrails import sanitize_filename
 
 _BASE_URL = "https://app.asana.com/api/1.0"
 _HEADERS = {"Authorization": f"Bearer {ASANA_ACCESS_TOKEN}"}
@@ -60,7 +61,7 @@ def fetch_attachments(task_id: str) -> list[str]:
         if not download_url:
             continue
 
-        filename = att_detail.get("name", att["gid"])
+        filename = sanitize_filename(att_detail.get("name", att["gid"]))
         local_path = task_dir / filename
 
         _download_file(download_url, local_path)

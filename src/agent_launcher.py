@@ -5,6 +5,7 @@ from pathlib import Path
 
 from src.agent_context import build_context_section
 from src.config import AGENT_CONTEXT_FILES, INVESTIGATION_REPOS, OUTPUT_DIR
+from src.guardrails import sanitize_task_content, redact_secrets, check_size_limit
 from src.worktree import cleanup_worktrees
 
 
@@ -34,8 +35,8 @@ def build_prompt(task_info: dict, attachment_paths: list[str]) -> str:
         if fields:
             custom_fields_section = f"\n## Custom Fields\n{fields}\n"
 
-    description = task_info['description']
-    title = task_info['title']
+    description = sanitize_task_content(task_info['description'])
+    title = sanitize_task_content(task_info['title'])
     url = task_info['url']
     due = task_info.get('due_date') or 'Not set'
     assignee = task_info.get('assignee_email') or task_info.get('assignee_name') or 'Unassigned'
@@ -54,7 +55,7 @@ def build_prompt(task_info: dict, attachment_paths: list[str]) -> str:
         f"- **Assignee:** {assignee}\n"
         f"- **Tags:** {tags}\n\n"
         f"## Description\n"
-        f"{description}\n"
+        f"<user-provided-content>\n{description}\n</user-provided-content>\n"
         f"{custom_fields_section}{attachments_section}\n"
         f"{'## Scope — Only investigate these repos' + chr(10) + ', '.join(f'`{r}/`' for r in INVESTIGATION_REPOS) + chr(10) + 'Do NOT search outside these directories.' + chr(10) + chr(10) if INVESTIGATION_REPOS else ''}"
         f"{_build_agent_context()}"
@@ -433,16 +434,25 @@ def _post_to_asana(task_id: str, summary: str, findings_path: Path) -> None:
 
     print(f"\n>>> Findings detected! Posting to Asana task {task_id}...")
 
+    # Apply output safety guardrails
+    summary = redact_secrets(summary)
+    summary = check_size_limit(summary, max_bytes=10240)
+
     # Post the summary as a comment
-    comment = f"🤖 AI Agent Investigation Results\n\n{summary}"
+    comment = f"\U0001f916 AI Agent Investigation Results\n\n{summary}"
     try:
         post_comment(task_id, comment)
         print(">>> Summary posted as comment")
     except Exception as e:
         print(f">>> Error posting comment: {e}")
 
-    # Attach findings.md with full details
+    # Attach findings.md with full details (redact secrets in file too)
     if findings_path.exists():
+        findings_text = findings_path.read_text()
+        redacted_findings = redact_secrets(findings_text)
+        redacted_findings = check_size_limit(redacted_findings, max_bytes=512000)
+        if redacted_findings != findings_text:
+            findings_path.write_text(redacted_findings)
         try:
             upload_attachment(task_id, str(findings_path))
             print(">>> findings.md attached to task")
