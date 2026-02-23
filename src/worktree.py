@@ -58,3 +58,16 @@ def cleanup_worktrees(repo_path: str, task_id: str, repos: list[str]) -> None:
                     print(f">>> Branch deletion skipped: {branch_err}")
         except Exception as exc:
             print(f">>> Unexpected error during worktree cleanup for {repo_name}: {exc}")
+
+
+def list_worktrees(repo_path: str, repos: list[str]) -> list[str]:
+    """List active CFIT worktree paths across repos."""
+    result = []
+    for repo_name in repos:
+        wt_dir = Path(repo_path) / repo_name / ".worktrees"
+        if not wt_dir.exists():
+            continue
+        for child in sorted(wt_dir.iterdir()):
+            if child.is_dir() and child.name.startswith("cfit-"):
+                result.append(str(child))
+    return result

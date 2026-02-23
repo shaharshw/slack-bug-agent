@@ -2,7 +2,7 @@
 import subprocess
 from pathlib import Path
 
-from src.worktree import cleanup_worktrees
+from src.worktree import cleanup_worktrees, list_worktrees
 
 
 def test_cleanup_removes_existing_worktree(tmp_path):
@@ -82,3 +82,33 @@ def test_cleanup_handles_multiple_repos(tmp_path):
     cleanup_worktrees(str(tmp_path), "555", ["repo_a", "repo_b"])
 
     assert not wt_path.exists()
+
+
+def test_list_worktrees_shows_active(tmp_path):
+    """list_worktrees returns paths of active worktrees for CFIT tasks."""
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=repo, capture_output=True, check=True)
+
+    wt_dir = repo / ".worktrees"
+    wt_dir.mkdir()
+    wt_path = wt_dir / "cfit-789"
+    subprocess.run(
+        ["git", "worktree", "add", str(wt_path), "-b", "fix/cfit-789"],
+        cwd=repo, capture_output=True, check=True,
+    )
+
+    result = list_worktrees(str(tmp_path), ["myrepo"])
+    assert len(result) == 1
+    assert result[0] == str(wt_path)
+
+
+def test_list_worktrees_empty(tmp_path):
+    """list_worktrees returns empty list when no CFIT worktrees exist."""
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+
+    result = list_worktrees(str(tmp_path), ["myrepo"])
+    assert result == []
