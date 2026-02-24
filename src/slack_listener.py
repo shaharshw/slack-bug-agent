@@ -177,11 +177,18 @@ def handle_message(event: dict, say) -> None:
 def start_listener() -> None:
     global app
 
-    # The socket mode client logs BrokenPipeError / SSLError at ERROR level
-    # during normal reconnection — suppress everything below CRITICAL.
-    # The logger lives in .builtin.client (not .connection) since Connection
-    # receives the client's logger instance.
-    logging.getLogger("slack_sdk.socket_mode.builtin").setLevel(logging.CRITICAL)
+    # SocketModeHandler passes app.logger ("slack_bolt.App") to the underlying
+    # SocketModeClient, so reconnection noise (BrokenPipeError / SSLError)
+    # is logged through that logger — not "slack_sdk.socket_mode.builtin".
+    # Use a targeted filter so only reconnection noise is suppressed.
+    class _SocketReconnectFilter(logging.Filter):
+        _NOISE = ("BrokenPipeError", "SSLError")
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            return not any(n in msg for n in self._NOISE)
+
+    logging.getLogger("slack_bolt.App").addFilter(_SocketReconnectFilter())
 
     app = App(token=config.SLACK_BOT_TOKEN)
     app.event("message")(handle_message)
