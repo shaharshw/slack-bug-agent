@@ -178,15 +178,49 @@ def start_listener() -> None:
     global app
 
     # SocketModeHandler passes app.logger ("slack_bolt.App") to the underlying
-    # SocketModeClient, so reconnection noise (BrokenPipeError / SSLError)
-    # is logged through that logger — not "slack_sdk.socket_mode.builtin".
-    # Use a targeted filter so only reconnection noise is suppressed.
+    # SocketModeClient, so reconnection noise is logged through that logger.
+    # Use a targeted filter that logs the first network error, then suppresses
+    # repeats until the error clears — avoids flooding logs when the machine
+    # sleeps or loses connectivity.
     class _SocketReconnectFilter(logging.Filter):
-        _NOISE = ("BrokenPipeError", "SSLError")
+        _NOISE = (
+            "BrokenPipeError",
+            "SSLError",
+            "URLError",
+            "TimeoutError",
+            "timed out",
+            "nodename nor servname",
+            "Failed to check the current session",
+            "Failed to send a request to Slack API server",
+            "Failed to establish a connection",
+        )
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._suppressing = False
+            self._suppressed_count = 0
 
         def filter(self, record: logging.LogRecord) -> bool:
             msg = record.getMessage()
-            return not any(n in msg for n in self._NOISE)
+            is_noise = any(n in msg for n in self._NOISE)
+            if not is_noise:
+                # Real message — if we were suppressing, log a summary
+                if self._suppressing and self._suppressed_count > 0:
+                    record.msg = (
+                        f"(suppressed {self._suppressed_count} repeated "
+                        f"connection error(s) while network was down)\n"
+                        + record.msg
+                    )
+                self._suppressing = False
+                self._suppressed_count = 0
+                return True
+            # It's noise — let the first one through, suppress the rest
+            if not self._suppressing:
+                self._suppressing = True
+                self._suppressed_count = 0
+                return True  # allow the first error
+            self._suppressed_count += 1
+            return False
 
     logging.getLogger("slack_bolt.App").addFilter(_SocketReconnectFilter())
 
