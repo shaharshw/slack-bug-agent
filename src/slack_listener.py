@@ -191,6 +191,7 @@ def start_listener() -> None:
             "ConnectionResetError",
             "ConnectionRefusedError",
             "ConnectionError",
+            "Network is unreachable",
             "timed out",
             "nodename nor servname",
             "Connection reset by peer",
@@ -198,6 +199,8 @@ def start_listener() -> None:
             "Failed to check the state of sock",
             "Failed to send a request to Slack API server",
             "Failed to establish a connection",
+            "Failed to disconnect",
+            "on_error invoked",
         )
 
         def __init__(self) -> None:
